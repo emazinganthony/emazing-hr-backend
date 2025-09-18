@@ -40,10 +40,8 @@ app.get('/health', (req, res) => {
 // Minimal Slack test endpoint
 app.post('/api/slack/test', (req, res) => {
   console.log('Minimal Slack TEST endpoint hit');
-  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
   console.log('Request body:', JSON.stringify(req.body, null, 2));
   
-  // Handle Slack URL verification
   if (req.body && req.body.type === 'url_verification') {
     console.log('Responding to verification with challenge:', req.body.challenge);
     return res.json({ challenge: req.body.challenge });
@@ -171,4 +169,68 @@ app.post('/api/slack/events', async (req, res) => {
         
         await sendSlackMessage(channel, responseText);
         
-        // Stor
+        // Store conversation
+        const { error: convError } = await supabase
+          .from('slack_conversations')
+          .insert({
+            slack_user_id: user,
+            slack_channel_id: channel,
+            user_message: text,
+            bot_response: responseText,
+            faq_matched: bestMatch ? bestMatch.id : null,
+            response_type: bestMatch ? 'faq_match' : 'no_match'
+          });
+        
+        if (convError) {
+          console.error('Error storing conversation:', convError);
+        } else {
+          console.log('Conversation logged successfully');
+        }
+        
+      } catch (error) {
+        console.error('Error processing message:', error);
+        await sendSlackMessage(channel, "I encountered an error. Please try again or contact IT support.");
+      }
+    }
+  }
+  
+  // Always respond with OK to Slack
+  res.json({ ok: true });
+});
+
+// Send message to Slack
+async function sendSlackMessage(channel, text) {
+  try {
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        channel: channel,
+        text: text
+      })
+    });
+    
+    const result = await response.json();
+    if (!result.ok) {
+      console.error('Slack API error:', result.error);
+    } else {
+      console.log('Message sent successfully');
+    }
+    return result;
+  } catch (error) {
+    console.error('Error sending message to Slack:', error);
+  }
+}
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 EmazingHR Slack Backend running on port ${PORT}`);
+  console.log(`🔗 Slack webhook URL: https://emazing-hr-backend.onrender.com/api/slack/events`);
+  console.log(`❤️ Health check: https://emazing-hr-backend.onrender.com/health`);
+  console.log(`✅ Test endpoint: https://emazing-hr-backend.onrender.com/api/slack/test`);
+});
+
+export default app;
