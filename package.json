@@ -1,0 +1,28 @@
+{
+  "name": "emazing-hr-slack-backend",
+  "version": "1.0.0",
+  "description": "Slack bot backend for EmazingHR system",
+  "main": "src/server/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server/index.js",
+    "dev": "node src/server/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "slack",
+    "bot",
+    "hr",
+    "webhook"
+  ],
+  "author": "EmazingHR",
+  "license": "MIT"
+}
