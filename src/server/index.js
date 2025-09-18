@@ -96,11 +96,117 @@ app.post('/api/slack/events', async (req, res) => {
     if (body.type === 'event_callback') {
       const event = body.event;
 
-      // Only process direct messages and app mentions
-      if (event.type === 'message' && !event.bot_id) {
-        const userMessage = event.text || '';
-        const userId = event.user || '';
-        const channelId = event.channel || '';
+ // Process the message
+if (event.type === 'message' && !event.bot_id && event.text) {
+    const { text, channel, user } = event;
+    
+    console.log('Processing message:', text);
+    console.log('From user:', user);
+    console.log('In channel:', channel);
+    
+    try {
+        // Search for relevant FAQ
+        console.log('Fetching all active FAQs...');
+        const { data: faqs, error: faqError } = await supabase
+            .from('faqs')
+            .select('*')
+            .eq('is_active', true);
+        
+        if (faqError) {
+            console.error('Error fetching FAQs:', faqError);
+            await sendSlackMessage(channel, "I'm having trouble accessing the FAQ database. Please contact IT support.");
+            return res.json({ ok: true });
+        }
+        
+        console.log('Found FAQs:', faqs ? faqs.length : 0);
+        
+        if (!faqs || faqs.length === 0) {
+            console.log('No FAQs found in database');
+            await sendSlackMessage(channel, "I don't have any FAQs loaded yet. Please contact HR to set them up.");
+            return res.json({ ok: true });
+        }
+        
+        // Convert message to lowercase for matching
+        const searchText = text.toLowerCase().trim();
+        console.log('Searching for:', searchText);
+        
+        // Try to find a matching FAQ
+        let bestMatch = null;
+        let highestScore = 0;
+        
+        for (const faq of faqs) {
+            const faqQuestion = faq.question.toLowerCase();
+            console.log('Comparing with FAQ:', faqQuestion);
+            
+            // Check for exact match first
+            if (faqQuestion === searchText) {
+                console.log('Exact match found!');
+                bestMatch = faq;
+                highestScore = 100;
+                break;
+            }
+            
+            // Check if FAQ question contains the search text
+            if (faqQuestion.includes(searchText) || searchText.includes(faqQuestion)) {
+                console.log('Partial match found!');
+                bestMatch = faq;
+                highestScore = 50;
+                continue;
+            }
+            
+            // Check word overlap
+            const searchWords = searchText.split(' ').filter(w => w.length > 2);
+            const faqWords = faqQuestion.split(' ').filter(w => w.length > 2);
+            let matches = 0;
+            
+            for (const word of searchWords) {
+                if (faqQuestion.includes(word)) {
+                    matches++;
+                }
+            }
+            
+            const score = (matches / searchWords.length) * 30;
+            if (score > highestScore) {
+                console.log('Word match found with score:', score);
+                bestMatch = faq;
+                highestScore = score;
+            }
+        }
+        
+        console.log('Best match:', bestMatch ? bestMatch.question : 'none');
+        console.log('Match score:', highestScore);
+        
+        // Send response
+        if (bestMatch && highestScore > 10) {
+            console.log('Sending FAQ answer:', bestMatch.answer);
+            await sendSlackMessage(channel, bestMatch.answer);
+        } else {
+            console.log('No good match found, sending default response');
+            await sendSlackMessage(channel, "I'll connect you with our HR team for help with that question.");
+        }
+        
+        // Store conversation
+        const { error: convError } = await supabase
+            .from('slack_conversations')
+            .insert({
+                slack_user_id: user,
+                slack_channel_id: channel,
+                user_message: text,
+                bot_response: bestMatch ? bestMatch.answer : "I'll connect you with our HR team for help with that question.",
+                faq_matched: bestMatch ? bestMatch.id : null
+            });
+        
+        if (convError) {
+            console.error('Error storing conversation:', convError);
+        }
+        
+    } catch (error) {
+        console.error('Error processing message:', error);
+        await sendSlackMessage(channel, "I encountered an error. Please try again or contact IT support.");
+    }
+}
+
+res.json({ ok: true });
 
         console.log('Processing message:', userMessage);
 
@@ -261,36 +367,28 @@ async function findMatchingFAQ(userMessage) {
 }
 
 // Send message to Slack
-async function sendSlackMessage(channelId, message) {
-  const slackToken = process.env.SLACK_BOT_TOKEN;
-  
-  if (!slackToken) {
-    console.error('SLACK_BOT_TOKEN not found');
-    return;
-  }
-
-  try {
-    const response = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${slackToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        channel: channelId,
-        text: message,
-      }),
-    });
-
-    const result = await response.json();
-    if (!result.ok) {
-      console.error('Slack API error:', result.error);
-    } else {
-      console.log('Message sent to Slack successfully');
+async function sendSlackMessage(channel, text) {
+    try {
+        const response = await fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                channel: channel,
+                text: text
+            })
+        });
+        
+        const result = await response.json();
+        if (!result.ok) {
+            console.error('Slack API error:', result.error);
+        }
+        return result;
+    } catch (error) {
+        console.error('Error sending message:', error);
     }
-  } catch (error) {
-    console.error('Error sending Slack message:', error);
-  }
 }
 
 // Log conversation to database
