@@ -287,6 +287,7 @@ if (messageResult.ok) {
   res.json({ ok: true });
 });  // <-- This closes your message event handler
 // Handle reaction events for feedback tracking
+// Handle reaction events for feedback tracking
 slack.event('reaction_added', async ({ event }) => {
   try {
     // Only track reactions to bot messages
@@ -303,7 +304,7 @@ slack.event('reaction_added', async ({ event }) => {
     
     const message = messageInfo.messages[0];
     
-    // Check if this is a bot message (you'll need to add BOT_USER_ID to env)
+    // Check if this is a bot message
     if (message.bot_id !== process.env.SLACK_BOT_ID) {
       return; // Not a bot message, ignore
     }
@@ -327,7 +328,8 @@ slack.event('reaction_added', async ({ event }) => {
         console.error('Error logging feedback:', error);
       } else {
         console.log(`Feedback logged: ${feedback} from user ${event.user}`);
-       }
+      }
+    }
   } catch (error) {
     console.error('Error handling reaction:', error);
   }
