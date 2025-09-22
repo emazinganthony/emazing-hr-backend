@@ -327,8 +327,7 @@ slack.event('reaction_added', async ({ event }) => {
         console.error('Error logging feedback:', error);
       } else {
         console.log(`Feedback logged: ${feedback} from user ${event.user}`);
-      }
-    }
+       }
   } catch (error) {
     console.error('Error handling reaction:', error);
   }
