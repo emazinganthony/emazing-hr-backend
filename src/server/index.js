@@ -19,6 +19,7 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
+
 // Track when messages arrive for response time calculation
 const messageTimestamps = new Map();
 
@@ -58,6 +59,7 @@ async function addReactions(channel, timestamp) {
     console.error('Error adding reactions:', error);
   }
 }
+
 // Health check endpoint
 app.get('/', (req, res) => {
   res.json({
@@ -194,13 +196,10 @@ app.post('/api/slack/events', async (req, res) => {
             console.log('Match found!');
             bestMatch = faq;
             break;
-          } slack.event('message', async ({ event, say }) => {
-  const startTime = Date.now(); // ADD THIS LINE
-  try {
-    // ... rest of your code
+          }
         }
         
-        // Send response
+        // Send response with reactions
         const responseText = bestMatch 
           ? bestMatch.answer 
           : "I'll connect you with our HR team for help with that question.";
@@ -208,55 +207,17 @@ app.post('/api/slack/events', async (req, res) => {
         console.log('Best match:', bestMatch ? bestMatch.question : 'none');
         console.log('Sending response:', responseText);
         
-       // Replace line 208: await sendSlackMessage(channel, responseText);
-// WITH this enhanced version:
-
-// Track response time
-const responseTime = Date.now() - startTime;
-
-// Send message and get the timestamp for adding reactions
-const messageResult = await slack.chat.postMessage({
-  channel: channel,
-  text: responseText,
-  blocks: [
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: responseText
-      }
-    },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: '_Was this helpful?_'
-      }
-    }
-  ]
-});
-
-// Add reaction emojis for feedback
-if (messageResult.ok) {
-  // Add thumbs up reaction
-  await slack.reactions.add({
-    channel: channel,
-    timestamp: messageResult.ts,
-    name: 'thumbsup'
-  });
-  
-  // Add thumbs down reaction
-  await slack.reactions.add({
-    channel: channel,
-    timestamp: messageResult.ts,
-    name: 'thumbsdown'
-  });
-  
-  // Log the interaction with response time
-  await logConversation(userId, question, responseText, 'faq_match', responseTime);
-} else {
-  console.error('Failed to send message:', messageResult.error);
-}
+        // Send message and get the timestamp
+        const messageResult = await sendSlackMessageWithBlocks(channel, responseText);
+        
+        // Add reactions if message was sent successfully
+        if (messageResult && messageResult.ok && messageResult.ts) {
+          await addReactions(channel, messageResult.ts);
+          
+          // Calculate response time
+          const responseTime = Date.now() - startTime;
+          console.log(`Response time: ${responseTime}ms`);
+        }
         
         // Store conversation
         const { error: convError } = await supabase
@@ -267,7 +228,8 @@ if (messageResult.ok) {
             user_message: text,
             bot_response: responseText,
             faq_matched: bestMatch ? bestMatch.id : null,
-            response_type: bestMatch ? 'faq_match' : 'no_match'
+            response_type: bestMatch ? 'faq_match' : 'no_match',
+            response_time_ms: Date.now() - startTime
           });
         
         if (convError) {
@@ -281,64 +243,89 @@ if (messageResult.ok) {
         await sendSlackMessage(channel, "I encountered an error. Please try again or contact IT support.");
       }
     }
+    
+    // Handle reaction events for feedback tracking
+    if (event.type === 'reaction_added' && event.item && event.item.type === 'message') {
+      console.log('Reaction added:', event.reaction);
+      console.log('By user:', event.user);
+      console.log('To message:', event.item.ts);
+      
+      try {
+        // Track only thumbsup and thumbsdown reactions
+        if (event.reaction === 'thumbsup' || event.reaction === 'thumbsdown') {
+          const feedback = event.reaction === 'thumbsup' ? 'positive' : 'negative';
+          
+          // Log to feedback_logs table
+          const { error } = await supabase
+            .from('feedback_logs')
+            .insert({
+              user_id: event.user,
+              message_ts: event.item.ts,
+              feedback: feedback,
+              channel: event.item.channel
+            });
+          
+          if (error) {
+            console.error('Error logging feedback:', error);
+          } else {
+            console.log(`Feedback logged: ${feedback} from user ${event.user}`);
+          }
+        }
+      } catch (error) {
+        console.error('Error handling reaction:', error);
+      }
+    }
   }
   
   // Always respond with OK to Slack
   res.json({ ok: true });
-});  // <-- This closes your message event handler
-// Handle reaction events for feedback tracking
-// Handle reaction events for feedback tracking
-slack.event('reaction_added', async ({ event }) => {
+});
+
+// Send message to Slack with blocks
+async function sendSlackMessageWithBlocks(channel, text) {
   try {
-    // Only track reactions to bot messages
-    const messageInfo = await slack.conversations.history({
-      channel: event.item.channel,
-      latest: event.item.ts,
-      limit: 1,
-      inclusive: true
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        channel: channel,
+        text: text,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: text
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '_Was this helpful?_'
+            }
+          }
+        ]
+      })
     });
     
-    if (!messageInfo.messages || messageInfo.messages.length === 0) {
-      return;
+    const result = await response.json();
+    if (!result.ok) {
+      console.error('Slack API error:', result.error);
+    } else {
+      console.log('Message sent successfully');
     }
-    
-    const message = messageInfo.messages[0];
-    
-    // Check if this is a bot message
-    if (message.bot_id !== process.env.SLACK_BOT_ID) {
-      return; // Not a bot message, ignore
-    }
-    
-    // Track feedback
-    const feedback = event.reaction === 'thumbsup' ? 'positive' : 
-                    event.reaction === 'thumbsdown' ? 'negative' : null;
-    
-    if (feedback) {
-      // Log to feedback_logs table
-      const { error } = await supabase
-        .from('feedback_logs')
-        .insert({
-          user_id: event.user,
-          message_ts: event.item.ts,
-          feedback: feedback,
-          channel: event.item.channel
-        });
-      
-      if (error) {
-        console.error('Error logging feedback:', error);
-      } else {
-        console.log(`Feedback logged: ${feedback} from user ${event.user}`);
-      }
-    }
+    return result;
   } catch (error) {
-    console.error('Error handling reaction:', error);
+    console.error('Error sending message to Slack:', error);
+    return null;
   }
-});
-// ADD THE NEW REACTION HANDLER HERE (insert new lines)
+}
 
-// Send message to Slack  <-- This comment will be pushed down
-
-// Send message to Slack
+// Send simple message to Slack
 async function sendSlackMessage(channel, text) {
   try {
     const response = await fetch('https://slack.com/api/chat.postMessage', {
