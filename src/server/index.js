@@ -252,8 +252,9 @@ app.post('/api/slack/events', async (req, res) => {
       
       try {
         // Track only thumbsup and thumbsdown reactions (these are the ones we add to bot messages)
-        if (event.reaction === 'thumbsup' || event.reaction === 'thumbsdown') {
-          const feedback = event.reaction === 'thumbsup' ? 'positive' : 'negative';
+        if (event.reaction === 'thumbsup' || event.reaction === 'thumbsdown' || 
+    event.reaction === '+1' || event.reaction === '-1') {
+  const feedback = (event.reaction === 'thumbsup' || event.reaction === '+1') ? 'positive' : 'negative';
           
           // Log to feedback_logs table
           const { error } = await supabase
