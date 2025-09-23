@@ -251,7 +251,7 @@ app.post('/api/slack/events', async (req, res) => {
       console.log('To message:', event.item.ts);
       
       try {
-        // Track only thumbsup and thumbsdown reactions
+        // Track only thumbsup and thumbsdown reactions (these are the ones we add to bot messages)
         if (event.reaction === 'thumbsup' || event.reaction === 'thumbsdown') {
           const feedback = event.reaction === 'thumbsup' ? 'positive' : 'negative';
           
