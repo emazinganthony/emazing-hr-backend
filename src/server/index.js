@@ -285,10 +285,11 @@ if (event.type === 'reaction_added' && event.item && event.item.type === 'messag
   console.log('Reaction added:', event.reaction);
   console.log('By user:', event.user);
   
-  // Skip if this is the bot's own reaction
-  if (event.bot_id) {
-    console.log('Skipping bot reaction');
-    return res.json({ ok: true });
+// Skip if this is the bot's own reaction (bot user ID from logs)
+if (event.user === 'U09FYC4GSSW') {
+  console.log('Skipping bot reaction');
+  return res.json({ ok: true });
+}
   }
       console.log('To message:', event.item.ts);
       
