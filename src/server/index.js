@@ -281,8 +281,16 @@ app.post('/api/slack/events', async (req, res) => {
     
     // Handle reaction events for feedback tracking
     if (event.type === 'reaction_added' && event.item && event.item.type === 'message') {
-      console.log('Reaction added:', event.reaction);
-      console.log('By user:', event.user);
+     // Handle reaction events for feedback tracking
+if (event.type === 'reaction_added' && event.item && event.item.type === 'message') {
+  console.log('Reaction added:', event.reaction);
+  console.log('By user:', event.user);
+  
+  // Skip if this is the bot's own reaction
+  if (event.bot_id) {
+    console.log('Skipping bot reaction');
+    return res.json({ ok: true });
+  }
       console.log('To message:', event.item.ts);
       
       try {
