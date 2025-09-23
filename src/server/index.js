@@ -279,8 +279,7 @@ app.post('/api/slack/events', async (req, res) => {
       }
     }
     
-    // Handle reaction events for feedback tracking
-    if (event.type === 'reaction_added' && event.item && event.item.type === 'message') {
+
      // Handle reaction events for feedback tracking
 if (event.type === 'reaction_added' && event.item && event.item.type === 'message') {
   console.log('Reaction added:', event.reaction);
