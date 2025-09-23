@@ -257,14 +257,14 @@ app.post('/api/slack/events', async (req, res) => {
   const feedback = (event.reaction === 'thumbsup' || event.reaction === '+1') ? 'positive' : 'negative';
           
           // Log to feedback_logs table
-          const { error } = await supabase
-            .from('feedback_logs')
-            .insert({
-              user_id: event.user,
-              message_ts: event.item.ts,
-              feedback: feedback,
-              channel: event.item.channel
-            });
+        const { error } = await supabase
+  .from('feedback_logs')
+  .insert({
+    slack_user_id: event.user,
+    slack_channel_id: event.item.channel,
+    satisfaction: feedback === 'positive' ? true : false,
+    feedback_text: feedback
+  });
           
           if (error) {
             console.error('Error logging feedback:', error);
