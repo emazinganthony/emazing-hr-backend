@@ -23,6 +23,9 @@ const supabase = createClient(
 // Track when messages arrive for response time calculation
 const messageTimestamps = new Map();
 
+// Track who we're waiting for detailed feedback from
+const pendingFollowups = new Map();
+
 // Function to add reaction emojis
 async function addReactions(channel, timestamp) {
   try {
@@ -146,6 +149,38 @@ app.post('/api/slack/events', async (req, res) => {
       console.log('From user:', user);
       console.log('In channel:', channel);
       
+      // Handle thread replies for detailed feedback
+      if (event.thread_ts && pendingFollowups.has(user)) {
+        console.log(`Detailed feedback received from ${user}: ${text}`);
+        
+        // Store detailed feedback in database
+        const { error } = await supabase
+          .from('feedback_logs')
+          .insert({
+            slack_user_id: user,
+            slack_channel_id: channel,
+            feedback_text: text,
+            satisfaction: false, // It was negative feedback that prompted this
+            created_at: new Date().toISOString()
+          });
+        
+        if (error) {
+          console.error('Error storing detailed feedback:', error);
+        } else {
+          // Thank the user
+          await sendThreadedMessage(
+            channel,
+            event.thread_ts,
+            "Thank you for your feedback! We'll use this to improve our responses."
+          );
+          
+          // Remove from pending
+          pendingFollowups.delete(user);
+          console.log('Detailed feedback stored successfully');
+        }
+        return res.json({ ok: true });
+      }
+      
       try {
         // Fetch all active FAQs
         console.log('Fetching FAQs from database...');
@@ -251,25 +286,44 @@ app.post('/api/slack/events', async (req, res) => {
       console.log('To message:', event.item.ts);
       
       try {
-        // Track only thumbsup and thumbsdown reactions (these are the ones we add to bot messages)
+        // Track only thumbsup and thumbsdown reactions
         if (event.reaction === 'thumbsup' || event.reaction === 'thumbsdown' || 
-    event.reaction === '+1' || event.reaction === '-1') {
-  const feedback = (event.reaction === 'thumbsup' || event.reaction === '+1') ? 'positive' : 'negative';
+            event.reaction === '+1' || event.reaction === '-1') {
+          const feedback = (event.reaction === 'thumbsup' || event.reaction === '+1') ? 'positive' : 'negative';
           
           // Log to feedback_logs table
-        const { error } = await supabase
-  .from('feedback_logs')
-  .insert({
-    slack_user_id: event.user,
-    slack_channel_id: event.item.channel,
-    satisfaction: feedback === 'positive' ? true : false,
-    feedback_text: feedback
-  });
+          const { error } = await supabase
+            .from('feedback_logs')
+            .insert({
+              slack_user_id: event.user,
+              slack_channel_id: event.item.channel,
+              satisfaction: feedback === 'positive' ? true : false,
+              feedback_text: feedback
+            });
           
           if (error) {
             console.error('Error logging feedback:', error);
           } else {
             console.log(`Feedback logged: ${feedback} from user ${event.user}`);
+            
+            // If negative feedback, ask for more details
+            if (feedback === 'negative') {
+              // Store that we're waiting for detailed feedback
+              pendingFollowups.set(event.user, {
+                channel: event.item.channel,
+                thread_ts: event.item.ts,
+                timestamp: new Date().toISOString()
+              });
+              
+              // Send follow-up question in thread
+              await sendThreadedMessage(
+                event.item.channel,
+                event.item.ts,
+                "I'm sorry that wasn't helpful. Could you briefly tell me what you were looking for so I can improve?"
+              );
+              
+              console.log('Follow-up question sent for negative feedback');
+            }
           }
         }
       } catch (error) {
@@ -350,6 +404,34 @@ async function sendSlackMessage(channel, text) {
     return result;
   } catch (error) {
     console.error('Error sending message to Slack:', error);
+  }
+}
+
+// Send threaded message to Slack
+async function sendThreadedMessage(channel, thread_ts, text) {
+  try {
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        channel: channel,
+        text: text,
+        thread_ts: thread_ts
+      })
+    });
+    
+    const result = await response.json();
+    if (!result.ok) {
+      console.error('Failed to send threaded message:', result.error);
+    } else {
+      console.log('Threaded message sent successfully');
+    }
+    return result;
+  } catch (error) {
+    console.error('Error sending threaded message:', error);
   }
 }
 
