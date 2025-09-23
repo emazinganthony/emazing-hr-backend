@@ -286,7 +286,7 @@ if (event.type === 'reaction_added' && event.item && event.item.type === 'messag
   console.log('By user:', event.user);
   
 // Skip if this is the bot's own reaction (bot user ID from logs)
-if (event.user === 'U09FYC4GSSW') {
+if (event.user === process.env.BOT_USER_ID) {
   console.log('Skipping bot reaction');
   return res.json({ ok: true });
 }
