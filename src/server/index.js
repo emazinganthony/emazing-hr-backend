@@ -63,7 +63,7 @@ async function addReactions(channel, timestamp) {
   }
 }
 
-// Health check endpoint
+// Basic status endpoint
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
@@ -72,12 +72,35 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
+// IMPROVED Health check endpoint - Actually tests if database is working
+app.get('/health', async (req, res) => {
+  try {
+    // Test database connection
+    const { data, error } = await supabase
+      .from('faqs')
+      .select('id')
+      .limit(1);
+    
+    if (error) {
+      throw new Error(`Database error: ${error.message}`);
+    }
+    
+    // If we get here, everything is working
+    res.json({ 
+      status: 'healthy', 
+      timestamp: new Date().toISOString(),
+      database: 'connected',
+      faqs_accessible: true,
+      environment: process.env.NODE_ENV || 'development'
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(500).json({ 
+      status: 'unhealthy', 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Minimal Slack test endpoint
